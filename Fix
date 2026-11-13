@@ -1,0 +1,48 @@
+--- a/app.py
++++ b/app.py
+@@ -7,6 +7,7 @@
+ Запуск: python app.py   ->   http://127.0.0.1:8000
+ """
+ import sqlite3
++import html
+ from http.server import BaseHTTPRequestHandler, HTTPServer
+ from urllib.parse import parse_qs
+ 
+@@ -65,9 +66,11 @@
+         con = sqlite3.connect(DB)
+         rows = con.execute("SELECT author, text FROM comments").fetchall()
+         con.close()
+-        # УЯЗВИМОСТЬ 2: данные пользователя вставляются в HTML без экранирования
+-        html = "".join(f"<p><b>{a}</b>: {t}</p>" for a, t in rows)
+-        self.send_html(PAGE.format(comments=html))
++        # ИСПРАВЛЕНО: экранируем пользовательские данные перед вставкой в HTML
++        items = "".join(
++            f"<p><b>{html.escape(a)}</b>: {html.escape(t)}</p>" for a, t in rows
++        )
++        self.send_html(PAGE.format(comments=items))
+ 
+     def do_POST(self):
+         form = self.read_form()
+@@ -75,16 +78,16 @@
+         if self.path == "/login":
+             u = form.get("username", "")
+             p = form.get("password", "")
+-            # УЯЗВИМОСТЬ 1: SQL-запрос собирается конкатенацией строк
+-            query = f"SELECT username, role FROM users WHERE username='{u}' AND password='{p}'"
++            # ИСПРАВЛЕНО: параметризованный запрос (данные не попадают в SQL-код)
++            query = "SELECT username, role FROM users WHERE username=? AND password=?"
+             try:
+-                row = con.execute(query).fetchone()
+-            except sqlite3.Error as e:
++                row = con.execute(query, (u, p)).fetchone()
++            except sqlite3.Error:
+                 con.close()
+-                return self.send_html(f"Ошибка SQL: {e}", 500)
++                return self.send_html("Внутренняя ошибка", 500)
+             con.close()
+             if row:
+-                return self.send_html(f"Добро пожаловать, {row[0]}! Роль: {row[1]}")
++                return self.send_html(f"Добро пожаловать, {html.escape(row[0])}! Роль: {html.escape(row[1])}")
+             return self.send_html("Неверный логин или пароль", 401)
+         if self.path == "/comment":
+             con.execute("INSERT INTO comments(author, text) VALUES (?, ?)",
